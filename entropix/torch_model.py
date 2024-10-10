@@ -25,7 +25,7 @@ from typing import Tuple, Optional
 def rms_norm(x: torch.Tensor, w: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
   return w * (x * torch.rsqrt(torch.pow(x, 2).mean(-1, keepdim=True) + eps))
 
-def apply_rotary_emb(xq: torch.Tensor, xk: torch.Tensor, freqs_cis: torch.Tensor, dtype: torch.dtype = torch.float32) -> Tuple[torch.Tensor, torch.Tensor]:
+def apply_rotary_emb(xq: torch.Tensor, xk: torch.Tensor, freqs_cis: torch.Tensor, dtype: torch.dtype = torch.bfloat16) -> Tuple[torch.Tensor, torch.Tensor]:
     reshape_xq = xq.float().reshape(*xq.shape[:-1], -1, 2)
     reshape_xk = xk.float().reshape(*xk.shape[:-1], -1, 2)
     xq_ = torch.complex(reshape_xq[..., 0], reshape_xq[..., 1])
@@ -54,7 +54,7 @@ def attention(x: torch.Tensor, layer_weights: LayerWeights, model_params, cur_po
         scores = scores + attn_mask
     mask = torch.where(scores != 0.0, scores, DEFAULT_MASK_VALUE)
     padded_logits = torch.where((mask >= DEFAULT_MASK_VALUE * 0.5), scores, DEFAULT_MASK_VALUE)
-    scores = F.softmax(padded_logits, dim=-1).to(torch.float32)
+    scores = F.softmax(padded_logits, dim=-1).to(torch.bfloat16)
     output = torch.matmul(scores, values)
     output = output.transpose(1, 2).reshape(xq.shape[0], xq.shape[2], -1)
     out = F.linear(output, layer_weights.wo)
