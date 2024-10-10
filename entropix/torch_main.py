@@ -1,5 +1,5 @@
 from typing import NamedTuple, Optional, Tuple
-
+import json 
 import torch
 import torch.nn.functional as F
 
@@ -14,7 +14,7 @@ from entropix.tokenizer import Tokenizer
 from entropix.torch_kvcache import KVCache
 from entropix.torch_model import xfmr
 from entropix.torch_weights import XfmrWeights, LayerWeights, load_weights
-from entropix.torch_sampler import sample
+from entropix.torch_sampler import sample, calculate_metrics
 from entropix.prompts import prompt, bp1
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -98,6 +98,7 @@ def main():
     raw_tokens1 = tokenizer.encode(prompt,  bos=False, eos=False, allowed_special='all')
     #this is not used in this script, but can be used to generate base_raw_tokens1
     base_raw_tokens1 = tokenizer.encode(bp1, bos=True, eos=False, allowed_special='all')
+    torch.manual_seed(1234)
 
 
     def generate(xfmr_weights, model_params, tokens):
@@ -114,14 +115,24 @@ def main():
       print(tokenizer.decode([next_token.item()]), end='', flush=True)
       cur_pos = seqlen
       stop = torch.tensor([128001, 128008, 128009], device=device, dtype=torch.int32)
+      stat_list = []
       while cur_pos < 8192:
         cur_pos += 1
         logits, kvcache, scores, stats = xfmr(xfmr_weights, model_params, next_token, cur_pos, freqs_cis[cur_pos:cur_pos+1], kvcache)
         next_token = sample(gen_tokens, logits, scores)
+        metrics = calculate_metrics(logits, scores)
+        metrics_clean = {k: v.item() for k, v in metrics.items()}
+        del metrics
+        token_str = tokenizer.decode(next_token.tolist()[0])
+        stat_list.append({'token': token_str, 'metrics': metrics_clean})
         gen_tokens = torch.cat((gen_tokens, next_token), dim=1)
-        print(tokenizer.decode(next_token.tolist()[0]), end='', flush=True)
+        print(token_str, end='', flush=True)
         if torch.isin(next_token, stop).any():
           break
+    
+      # save stat_list to json
+      with open('stat_list.json', 'w') as f:
+        json.dump(stat_list, f)
 
     print(prompt)
     generate(xfmr_weights, model_params, raw_tokens1)
