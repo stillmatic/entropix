@@ -27,7 +27,7 @@ def multinomial_sample_one(probs_sort: torch.Tensor, generator: torch.Generator)
     return torch.argmax(probs_sort / q, dim=-1, keepdim=True).to(torch.int32)
 
 def _sample(logits: torch.Tensor, temperature=0.666, top_p=0.90, top_k=27, min_p: float = 0.0, 
-            repetition_penalty: float = 1.5,
+            repetition_penalty: float = 1.0,
             prev_tokens: torch.Tensor = None,
             generator: torch.Generator = None) -> torch.Tensor:
     bsz = logits.shape[0]
@@ -146,7 +146,7 @@ COT_TOKENS = [2564, 14524, 81122, 11748, 12174, 14524, 2319]
 
 def sample(gen_tokens: torch.Tensor, logits: torch.Tensor, attention_scores: torch.Tensor,
            temperature=0.666, top_p=0.90, top_k=27, min_p: float = 0.0, 
-           generator: torch.Generator = torch.Generator(device=device).manual_seed(1337)) -> torch.Tensor:
+           generator: torch.Generator = torch.Generator(device=device).manual_seed(1234)) -> torch.Tensor:
     metrics = calculate_metrics(logits, attention_scores)
     # print({k: v.item() for k, v in metrics.items()})
     ent, vent = metrics["logits_entropy"], metrics["logits_varentropy"]

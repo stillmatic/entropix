@@ -1,25 +1,26 @@
+import json
+import math
+from functools import partial
+from pathlib import Path
 from typing import NamedTuple, Optional, Tuple
-import json 
+
 import torch
 import torch.nn.functional as F
-
-import math
 import tyro
-
-from pathlib import Path
-from functools import partial
+from rich import print
+from rich.console import Console
 
 from entropix.config import LLAMA_1B_PARAMS
+from entropix.prompts import bp1, bp4, prompt
 from entropix.tokenizer import Tokenizer
 from entropix.torch_kvcache import KVCache
 from entropix.torch_model import xfmr
-from entropix.torch_weights import XfmrWeights, LayerWeights, load_weights
-from entropix.torch_sampler import sample, calculate_metrics
-from entropix.prompts import prompt, bp1, bp4
+from entropix.torch_sampler import calculate_metrics, sample
+from entropix.torch_weights import LayerWeights, XfmrWeights, load_weights
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-prompt = bp4
+# prompt = bp4
 
 # Device selection, tree is like first apple silicion, then cuda, fallback is cpu.
 if torch.backends.mps.is_available():
@@ -92,15 +93,17 @@ def build_attn_mask(seqlen: int, start_pos: int) -> torch.Tensor:
 
 def main():
   import pandas as pd
+
+  console = Console()
   with torch.inference_mode():
     model_params = LLAMA_1B_PARAMS
-    xfmr_weights = load_weights(ckpt_dir=Path("weights/1B-Base"), should_compare_outputs=True)
+    xfmr_weights = load_weights(ckpt_dir=Path("weights/1B-Instruct"), should_compare_outputs=True)
 
     tokenizer = Tokenizer('entropix/tokenizer.model')
     raw_tokens1 = tokenizer.encode(prompt,  bos=False, eos=False, allowed_special='all')
     #this is not used in this script, but can be used to generate base_raw_tokens1
     base_raw_tokens1 = tokenizer.encode(bp1, bos=True, eos=False, allowed_special='all')
-    torch.manual_seed(1234)
+    # torch.manual_seed(1234)
 
 
     def generate(xfmr_weights, model_params, tokens):
@@ -114,7 +117,7 @@ def main():
       logits, kvcache, _, _ = xfmr(xfmr_weights, model_params, tokens, cur_pos, freqs_cis[:seqlen], kvcache, attn_mask=attn_mask)
       next_token = torch.argmax(logits[:, -1], dim=-1, keepdim=True).to(torch.int32)
       gen_tokens = next_token
-      print(tokenizer.decode([next_token.item()]), end='', flush=True)
+      console.print(tokenizer.decode([next_token.item()]), end='')
       cur_pos = seqlen
       stop = torch.tensor([128001, 128008, 128009], device=device, dtype=torch.int32)
       stat_list = []
@@ -123,16 +126,30 @@ def main():
         logits, kvcache, scores, stats = xfmr(xfmr_weights, model_params, next_token, cur_pos, freqs_cis[cur_pos:cur_pos+1], kvcache)
         metrics = calculate_metrics(logits, scores)
         metrics_clean = {k: v.item() for k, v in metrics.items()}
+
+        ent, vent = metrics["logits_entropy"], metrics["logits_varentropy"]
         del metrics
+        
+        if ent > 5.0 and vent > 5.0 and cur_pos > seqlen + 4:
+        #    backspace 
+            cur_pos -= 1
+            next_token = gen_tokens[:, -1:]
+            gen_tokens = gen_tokens[:, :-1]
+            console.print("⌫", end='', style="red")
+            continue
 
-        # TODO: BACKSPACE LOGIC
         next_token = sample(gen_tokens, logits, scores)
-
 
         token_str = tokenizer.decode(next_token.tolist()[0])
         stat_list.append({'token': token_str, **metrics_clean})
         gen_tokens = torch.cat((gen_tokens, next_token), dim=1)
-        print(token_str, end='', flush=True)
+
+        style = ""
+        if metrics_clean["logits_entropy"] > 3:
+          style = "bold"
+        elif metrics_clean["logits_varentropy"] > 15:
+           style += "blue"
+        console.print(token_str, end='', style=style)
         if torch.isin(next_token, stop).any():
           break
     
