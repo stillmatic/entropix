@@ -15,10 +15,11 @@ from entropix.torch_kvcache import KVCache
 from entropix.torch_model import xfmr
 from entropix.torch_weights import XfmrWeights, LayerWeights, load_weights
 from entropix.torch_sampler import sample, calculate_metrics
-from entropix.prompts import prompt, bp1
+from entropix.prompts import prompt, bp1, bp4
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+# prompt = bp4
 
 # Device selection, tree is like first apple silicion, then cuda, fallback is cpu.
 if torch.backends.mps.is_available():

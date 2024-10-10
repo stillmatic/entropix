@@ -68,9 +68,10 @@ def calculate_metrics(logits: torch.Tensor, attention_scores: torch.Tensor) -> D
     mean_attention = torch.mean(attention_probs, dim=1)
     # agreement is a measure of how much each attention layer agrees with the mean attention
     agreement = torch.mean(torch.abs(attention_probs - mean_attention.unsqueeze(1)), dim=(1, 2))
-    interaction_strength = torch.mean(torch.abs(attention_scores), dim=(1, 2, 3))
+    non_inf_attn_scores = torch.where(attention_scores != float('-inf'), attention_scores, torch.full_like(attention_scores, torch.nan))
+    interaction_strength = torch.nanmean(torch.abs(non_inf_attn_scores), dim=(1, 2, 3))
 
-    return {
+    metrics =  {
         "logits_entropy": torch.mean(entropy),
         "logits_varentropy": torch.mean(varentropy),
         "attn_entropy": torch.mean(attn_entropy),
@@ -78,6 +79,7 @@ def calculate_metrics(logits: torch.Tensor, attention_scores: torch.Tensor) -> D
         "agreement": torch.mean(agreement),
         "interaction_strength": interaction_strength
     }
+    return metrics
 
 def adaptive_sample(logits: torch.Tensor, metrics: Dict[str, torch.Tensor],
                     gen_tokens: torch.Tensor, n_samples: int,
@@ -156,7 +158,7 @@ def sample(gen_tokens: torch.Tensor, logits: torch.Tensor, attention_scores: tor
             return _sample(logits, temperature=min(1.5, temperature * temp_adj), top_p=top_p, top_k=top_k, min_p=min_p, generator=generator)
 
     # Low Entropy, High Varentropy: "exploring forks in the path"
-    elif ent < 5.0 and vent > 7.5:
+    elif ent < 5.0 and vent > 5.0:
         print(" forking\n")
         temp_adj = 1.2 + 0.3 * interaction_strength  # Increase temperature based on interaction strength
         top_k_adj = max(5, int(top_k * (1 + 0.5 * (1 - agreement))))  # Increase top_k when agreement is low

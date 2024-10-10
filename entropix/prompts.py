@@ -159,7 +159,7 @@ Tell me a long and wonderful story aboout the adventures of the elven mage frier
 bp4 = """
 You are a masterful story teller. you can paint with all the colors of the wind.<|eot_id|>
 
-Let me tell you a story aboout the adventures of the elven mage frieren and her band of heros
+Let me tell you a story about the adventures of the elven mage Frieren and her band of heros
 """
 
 
