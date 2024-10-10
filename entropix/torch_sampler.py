@@ -68,7 +68,6 @@ def calculate_metrics(logits: torch.Tensor, attention_scores: torch.Tensor) -> D
     mean_attention = torch.mean(attention_probs, dim=1)
     # agreement is a measure of how much each attention layer agrees with the mean attention
     agreement = torch.mean(torch.abs(attention_probs - mean_attention.unsqueeze(1)), dim=(1, 2))
-
     interaction_strength = torch.mean(torch.abs(attention_scores), dim=(1, 2, 3))
 
     return {
@@ -141,27 +140,31 @@ def sample(gen_tokens: torch.Tensor, logits: torch.Tensor, attention_scores: tor
     interaction_strength = metrics["interaction_strength"]
 
     # Low Entropy, Low Varentropy: "flowing with unspoken intent"
-    if ent < 0.1 and vent < 0.1:
+    if ent < 0.1 and vent < 0.3:
         return torch.argmax(logits[:, -1], dim=-1, keepdim=True).to(torch.int32)
 
     # High Entropy, Low Varentropy: "treading carefully, asking clarifying questions"
-    elif ent > 3.0 and vent < 0.1:
+    elif ent > 3.0 and vent < 0.3:
+        print("Asking clarifying question\n")
         # Insert a clarifying question token if not already present
         if not torch.isin(gen_tokens[:,-1], torch.tensor([2564], device=device)).any():
-            return torch.tensor([[2564]], dtype=torch.int32, device=device)  # Assuming 2564 is our "ask clarifying question" token
+            rand_cot_token = torch.tensor([COT_TOKENS[torch.randint(0, len(COT_TOKENS), (1,))]], device=device)
+            return rand_cot_token # Assuming 2564 is our "ask clarifying question" token
         else:
             # If we've just asked a question, sample with slightly higher temperature
             temp_adj = 1.3 + 0.2 * attn_ent  # Increase temperature based on attention entropy
             return _sample(logits, temperature=min(1.5, temperature * temp_adj), top_p=top_p, top_k=top_k, min_p=min_p, generator=generator)
 
     # Low Entropy, High Varentropy: "exploring forks in the path"
-    elif ent < 5.0 and vent > 5.0:
+    elif ent < 5.0 and vent > 7.5:
+        print(" forking\n")
         temp_adj = 1.2 + 0.3 * interaction_strength  # Increase temperature based on interaction strength
         top_k_adj = max(5, int(top_k * (1 + 0.5 * (1 - agreement))))  # Increase top_k when agreement is low
         return _sample(logits, temperature=min(1.5, temperature * temp_adj), top_p=top_p, top_k=top_k_adj, min_p=min_p, generator=generator)
 
     # High Entropy, High Varentropy: "resampling in the mist"
     elif ent > 5.0 and vent > 5.0:
+        print(" resampling\n")
         # Use high temperature and adjusted top_p based on attention metrics
         temp_adj = 2.0 + 0.5 * attn_vent  # Increase temperature based on attention varentropy
         top_p_adj = max(0.5, top_p - 0.2 * attn_ent)  # Decrease top_p when attention entropy is high

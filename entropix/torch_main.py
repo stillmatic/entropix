@@ -117,12 +117,10 @@ def main():
       cur_pos = seqlen
       stop = torch.tensor([128001, 128008, 128009], device=device, dtype=torch.int32)
       stat_list = []
-      attn_list = []
       while cur_pos < 8192:
         cur_pos += 1
         logits, kvcache, scores, stats = xfmr(xfmr_weights, model_params, next_token, cur_pos, freqs_cis[cur_pos:cur_pos+1], kvcache)
         next_token = sample(gen_tokens, logits, scores)
-        attn_list = scores.tolist()
         metrics = calculate_metrics(logits, scores)
         metrics_clean = {k: v.item() for k, v in metrics.items()}
         del metrics
@@ -135,9 +133,6 @@ def main():
     
       df = pd.DataFrame(stat_list)
       df.to_csv('stats.csv', index=False)
-
-      with open('attn_list.json', 'w') as f:
-        json.dump(attn_list, f)
 
     print(prompt)
     generate(xfmr_weights, model_params, raw_tokens1)
