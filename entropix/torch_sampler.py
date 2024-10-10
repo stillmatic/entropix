@@ -53,6 +53,12 @@ def _sample(logits: torch.Tensor, temperature=0.666, top_p=0.90, top_k=27, min_p
 
 def calculate_metrics(logits: torch.Tensor, attention_scores: torch.Tensor) -> Dict[str, torch.Tensor]:
     entropy, varentropy = calculate_varentropy_logsoftmax(logits)
+
+    # NB chua: filter to non-zero values because future values are always zero (causal mask)
+    # another implementation would be to pass in or calculate the number of indices at play
+    # this is _probably_ fine though.
+    attention_scores = torch.where(attention_scores != 0.0, attention_scores, torch.full_like(attention_scores, float('-inf')))
+
     attention_probs = F.softmax(attention_scores, dim=-1)
     attn_entropy = -torch.sum(attention_probs * torch.log2(torch.clamp(attention_probs, 1e-10, 1.0)), dim=-1)
     attn_varentropy = torch.var(attn_entropy, dim=1)
@@ -121,6 +127,9 @@ def adaptive_sample(logits: torch.Tensor, metrics: Dict[str, torch.Tensor],
     sample_scores = torch.stack([score_sample(sample) for sample in samples])
     best_sample_idx = torch.argmax(sample_scores)
     return samples[best_sample_idx]
+
+
+COT_TOKENS = [2564, 14524, 81122, 11748, 12174, 14524, 2319]
 
 def sample(gen_tokens: torch.Tensor, logits: torch.Tensor, attention_scores: torch.Tensor,
            temperature=0.666, top_p=0.90, top_k=27, min_p: float = 0.0, 

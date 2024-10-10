@@ -90,6 +90,7 @@ def build_attn_mask(seqlen: int, start_pos: int) -> torch.Tensor:
 
 
 def main():
+  import pandas as pd
   with torch.inference_mode():
     model_params = LLAMA_1B_PARAMS
     xfmr_weights = load_weights()
@@ -116,23 +117,27 @@ def main():
       cur_pos = seqlen
       stop = torch.tensor([128001, 128008, 128009], device=device, dtype=torch.int32)
       stat_list = []
+      attn_list = []
       while cur_pos < 8192:
         cur_pos += 1
         logits, kvcache, scores, stats = xfmr(xfmr_weights, model_params, next_token, cur_pos, freqs_cis[cur_pos:cur_pos+1], kvcache)
         next_token = sample(gen_tokens, logits, scores)
+        attn_list = scores.tolist()
         metrics = calculate_metrics(logits, scores)
         metrics_clean = {k: v.item() for k, v in metrics.items()}
         del metrics
         token_str = tokenizer.decode(next_token.tolist()[0])
-        stat_list.append({'token': token_str, 'metrics': metrics_clean})
+        stat_list.append({'token': token_str, **metrics_clean})
         gen_tokens = torch.cat((gen_tokens, next_token), dim=1)
         print(token_str, end='', flush=True)
         if torch.isin(next_token, stop).any():
           break
     
-      # save stat_list to json
-      with open('stat_list.json', 'w') as f:
-        json.dump(stat_list, f)
+      df = pd.DataFrame(stat_list)
+      df.to_csv('stats.csv', index=False)
+
+      with open('attn_list.json', 'w') as f:
+        json.dump(attn_list, f)
 
     print(prompt)
     generate(xfmr_weights, model_params, raw_tokens1)

@@ -2,6 +2,8 @@ git-describe.txt
 .vscode/
 attic/
 weights/
+attn_list.json
+*.csv
 
 
 # boilerplate from here on down
