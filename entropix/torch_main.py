@@ -19,7 +19,7 @@ from entropix.prompts import prompt, bp1, bp4
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# prompt = bp4
+prompt = bp4
 
 # Device selection, tree is like first apple silicion, then cuda, fallback is cpu.
 if torch.backends.mps.is_available():
@@ -94,7 +94,7 @@ def main():
   import pandas as pd
   with torch.inference_mode():
     model_params = LLAMA_1B_PARAMS
-    xfmr_weights = load_weights()
+    xfmr_weights = load_weights(ckpt_dir=Path("weights/1B-Base"), should_compare_outputs=True)
 
     tokenizer = Tokenizer('entropix/tokenizer.model')
     raw_tokens1 = tokenizer.encode(prompt,  bos=False, eos=False, allowed_special='all')
@@ -121,10 +121,14 @@ def main():
       while cur_pos < 8192:
         cur_pos += 1
         logits, kvcache, scores, stats = xfmr(xfmr_weights, model_params, next_token, cur_pos, freqs_cis[cur_pos:cur_pos+1], kvcache)
-        next_token = sample(gen_tokens, logits, scores)
         metrics = calculate_metrics(logits, scores)
         metrics_clean = {k: v.item() for k, v in metrics.items()}
         del metrics
+
+        # TODO: BACKSPACE LOGIC
+        next_token = sample(gen_tokens, logits, scores)
+
+
         token_str = tokenizer.decode(next_token.tolist()[0])
         stat_list.append({'token': token_str, **metrics_clean})
         gen_tokens = torch.cat((gen_tokens, next_token), dim=1)
@@ -138,5 +142,5 @@ def main():
     print(prompt)
     generate(xfmr_weights, model_params, raw_tokens1)
 
-if __name__ == '__main__':
+if __name__ == '__main__': 
   tyro.cli(main)

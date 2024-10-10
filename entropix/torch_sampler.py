@@ -83,19 +83,20 @@ def calculate_metrics(logits: torch.Tensor, attention_scores: torch.Tensor) -> D
 
 def adaptive_sample(logits: torch.Tensor, metrics: Dict[str, torch.Tensor],
                     gen_tokens: torch.Tensor, n_samples: int,
-                    base_temp: float = 0.666, base_top_p: float = 0.90, base_top_k: int = 40, base_min_p: float = 0.03,
+                    base_temp: float = 0.666, base_top_p: float = 0.90, base_top_k: int = 40, base_min_p: float = 0.01,
                     generator: torch.Generator = None) -> torch.Tensor:
     logits_uncertainty = metrics["logits_entropy"] + metrics["logits_varentropy"]
     attn_uncertainty = metrics["attn_entropy"] + metrics["attn_varentropy"]
 
-    temperature = base_temp * (1 + 0.3 * logits_uncertainty + 0.2 * attn_uncertainty - 0.2 * metrics["agreement"])
+    temperature = base_temp * (1 + 0.3 * logits_uncertainty + 0.2 * attn_uncertainty - 2 * metrics["agreement"])
     top_p = torch.clamp(base_top_p * (1 + 0.1 * metrics["attn_varentropy"]), 0.1, 1.0)
     top_k = int(torch.clamp(
-        torch.round(torch.tensor(base_top_k) * (1 + 0.3 * metrics["interaction_strength"].item() - 0.2 * metrics["agreement"].item())),
+        torch.round(torch.tensor(base_top_k) * (1 + 0.3 * metrics["interaction_strength"].item() - 2 * metrics["agreement"].item())),
         min=1,
         max=100
     ).item())
-    min_p = torch.clamp(base_min_p * (1 - 0.5 * logits_uncertainty), 0.01, 0.5)
+    min_p = torch.clamp(base_min_p * (2 - 0.05 * logits_uncertainty), 0.01, 0.5)
+    # print(" ", "min_p", min_p.item(), "temperature", temperature.item(), "top_p", top_p.item(), "top_k", top_k)
 
     samples = []
     for _ in range(n_samples):
@@ -136,6 +137,7 @@ def sample(gen_tokens: torch.Tensor, logits: torch.Tensor, attention_scores: tor
            temperature=0.666, top_p=0.90, top_k=27, min_p: float = 0.0, 
            generator: torch.Generator = torch.Generator(device=device).manual_seed(1337)) -> torch.Tensor:
     metrics = calculate_metrics(logits, attention_scores)
+    # print({k: v.item() for k, v in metrics.items()})
     ent, vent = metrics["logits_entropy"], metrics["logits_varentropy"]
     attn_ent, attn_vent = metrics["attn_entropy"], metrics["attn_varentropy"]
     agreement = metrics["agreement"]
@@ -146,7 +148,7 @@ def sample(gen_tokens: torch.Tensor, logits: torch.Tensor, attention_scores: tor
         return torch.argmax(logits[:, -1], dim=-1, keepdim=True).to(torch.int32)
 
     # High Entropy, Low Varentropy: "treading carefully, asking clarifying questions"
-    elif ent > 3.0 and vent < 0.3:
+    elif ent > 3.0 and vent < 1.3:
         print("Asking clarifying question\n")
         # Insert a clarifying question token if not already present
         if not torch.isin(gen_tokens[:,-1], torch.tensor([2564], device=device)).any():
@@ -159,14 +161,14 @@ def sample(gen_tokens: torch.Tensor, logits: torch.Tensor, attention_scores: tor
 
     # Low Entropy, High Varentropy: "exploring forks in the path"
     elif ent < 5.0 and vent > 5.0:
-        print(" forking\n")
-        temp_adj = 1.2 + 0.3 * interaction_strength  # Increase temperature based on interaction strength
+        # print(" forking\n")
+        temp_adj = 1.2 + 0.03 * interaction_strength  # Increase temperature based on interaction strength
         top_k_adj = max(5, int(top_k * (1 + 0.5 * (1 - agreement))))  # Increase top_k when agreement is low
         return _sample(logits, temperature=min(1.5, temperature * temp_adj), top_p=top_p, top_k=top_k_adj, min_p=min_p, generator=generator)
 
     # High Entropy, High Varentropy: "resampling in the mist"
     elif ent > 5.0 and vent > 5.0:
-        print(" resampling\n")
+        # print(" resampling\n")
         # Use high temperature and adjusted top_p based on attention metrics
         temp_adj = 2.0 + 0.5 * attn_vent  # Increase temperature based on attention varentropy
         top_p_adj = max(0.5, top_p - 0.2 * attn_ent)  # Decrease top_p when attention entropy is high
