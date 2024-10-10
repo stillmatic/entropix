@@ -26,9 +26,20 @@ def multinomial_sample_one(probs_sort: torch.Tensor, generator: torch.Generator)
     q = torch.rand(probs_sort.shape, generator=generator, device=probs_sort.device)
     return torch.argmax(probs_sort / q, dim=-1, keepdim=True).to(torch.int32)
 
-def _sample(logits: torch.Tensor, temperature=0.666, top_p=0.90, top_k=27, min_p: float = 0.0, generator: torch.Generator = None) -> torch.Tensor:
+def _sample(logits: torch.Tensor, temperature=0.666, top_p=0.90, top_k=27, min_p: float = 0.0, 
+            repetition_penalty: float = 1.5,
+            prev_tokens: torch.Tensor = None,
+            generator: torch.Generator = None) -> torch.Tensor:
     bsz = logits.shape[0]
     logit = logits[:, -1]
+
+    if repetition_penalty != 1.0 and prev_tokens is not None:
+        score = torch.gather(logit, 1, prev_tokens)
+        # if score < 0 then repetition penalty has to be multiplied
+        # if score > 0 then repetition penalty has to be divided
+        score = torch.where(score < 0, score * repetition_penalty, score / repetition_penalty)
+        logit.scatter_(1, prev_tokens, score)
+
     probs = F.softmax(logit / temperature, dim=-1)
 
     # Apply min_p sampling
