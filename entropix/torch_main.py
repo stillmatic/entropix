@@ -11,7 +11,7 @@ from rich import print
 from rich.console import Console
 
 from entropix.config import LLAMA_1B_PARAMS
-from entropix.prompts import bp1, bp4, prompt
+from entropix.prompts import bp1, bp4, prompt, default_prompt
 from entropix.tokenizer import Tokenizer
 from entropix.torch_kvcache import KVCache
 from entropix.torch_model import xfmr
@@ -20,7 +20,8 @@ from entropix.torch_weights import LayerWeights, XfmrWeights, load_weights
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-prompt = bp4
+# prompt = bp4
+prompt = default_prompt
 
 # Device selection, tree is like first apple silicion, then cuda, fallback is cpu.
 if torch.backends.mps.is_available():
@@ -122,10 +123,13 @@ def main():
       stop = torch.tensor([128001, 128008, 128009], device=device, dtype=torch.int32)
       stat_list = []
       num_recent_deletes = 0
+      should_noise = False
       while cur_pos < 512:
         cur_pos += 1
         # print("cur_pos", cur_pos)
         logits, kvcache, scores, stats = xfmr(xfmr_weights, model_params, next_token, cur_pos, freqs_cis[cur_pos:cur_pos+1], kvcache)
+        if should_noise:
+           logits = logits + torch.randn_like(logits) * 0.1 
         metrics = calculate_metrics(logits, scores)
         metrics_clean = {k: v.item() for k, v in metrics.items()}
 
@@ -135,32 +139,22 @@ def main():
         del metrics
 
         # basic weighting to prevent backspacing too much
-        threshold = 7.0 + 2 * num_recent_deletes
-
-        
+        threshold = 5.0 + 2 * num_recent_deletes
         if ent > threshold and vent > threshold and cur_pos > seqlen + 4:
         #    backspace and pop the last token
             num_recent_deletes += 1
             # reset to the position before the last token, regenerate the token
             cur_pos -= 2
-
-            # console.print("⌫",  style="red")
-            # console.print("before (", len(gen_tokens[0]), "):", tokenizer.decode(gen_tokens[0].cpu().numpy().tolist()), style="red")
             next_token = gen_tokens[:, -2].unsqueeze(0)
             gen_tokens = gen_tokens[:, :-1]
-            # console.print("after (", len(gen_tokens[0]), "):", tokenizer.decode(gen_tokens[0].cpu().numpy().tolist()), style="green")
-            # console.print({"cur_pos": cur_pos, "next_token": tokenizer.decode([next_token.item()])}, style="green")
-            
-
-
-            # print("---", next_token.shape, gen_tokens.shape)
             console.print("⌫", end='', style="red")
-            
+            should_noise = True
             continue
         else:
             num_recent_deletes = max(0, num_recent_deletes - 0.5)
+            should_noise = False
 
-        temperature = 1.5 + (0.5 * num_recent_deletes)
+        temperature = 0.7 + (0.5 * num_recent_deletes)
         next_token = sample(gen_tokens, logits, scores, temperature=temperature)
 
         token_str = tokenizer.decode(next_token.tolist()[0])

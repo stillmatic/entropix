@@ -39,6 +39,15 @@ Certainly. I'll now provide my expert response to the task, drawing upon my exte
 
 """
 
+default_prompt = """<|start_header_id|>system<|end_header_id|>
+
+You are a world-class AI system, capable of complex reasoning. Begin your response with <thinking> tags and think step by step through the query, and then provide your final response inside <output> tags.<|eot_id|><|start_header_id|>user<|end_header_id|>
+
+Which number is larger, 9.9 or 9.11?<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+<thinking>"""
+
+# <|reserved_special_token_12|>
+
 def create_prompts_from_csv(csv_path: str) -> List[str]:
     prompts = []
     with open(csv_path, 'r') as csvfile:
