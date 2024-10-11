@@ -20,7 +20,7 @@ from entropix.torch_weights import LayerWeights, XfmrWeights, load_weights
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# prompt = bp4
+prompt = bp4
 
 # Device selection, tree is like first apple silicion, then cuda, fallback is cpu.
 if torch.backends.mps.is_available():
@@ -121,24 +121,47 @@ def main():
       cur_pos = seqlen
       stop = torch.tensor([128001, 128008, 128009], device=device, dtype=torch.int32)
       stat_list = []
-      while cur_pos < 8192:
+      num_recent_deletes = 0
+      while cur_pos < 512:
         cur_pos += 1
+        # print("cur_pos", cur_pos)
         logits, kvcache, scores, stats = xfmr(xfmr_weights, model_params, next_token, cur_pos, freqs_cis[cur_pos:cur_pos+1], kvcache)
         metrics = calculate_metrics(logits, scores)
         metrics_clean = {k: v.item() for k, v in metrics.items()}
 
+        # print(metrics_clean)
+
         ent, vent = metrics["logits_entropy"], metrics["logits_varentropy"]
         del metrics
-        
-        if ent > 5.0 and vent > 5.0 and cur_pos > seqlen + 4:
-        #    backspace 
-            cur_pos -= 1
-            next_token = gen_tokens[:, -1:]
-            gen_tokens = gen_tokens[:, :-1]
-            console.print("⌫", end='', style="red")
-            continue
 
-        next_token = sample(gen_tokens, logits, scores)
+        # basic weighting to prevent backspacing too much
+        threshold = 7.0 + 2 * num_recent_deletes
+
+        
+        if ent > threshold and vent > threshold and cur_pos > seqlen + 4:
+        #    backspace and pop the last token
+            num_recent_deletes += 1
+            # reset to the position before the last token, regenerate the token
+            cur_pos -= 2
+
+            # console.print("⌫",  style="red")
+            # console.print("before (", len(gen_tokens[0]), "):", tokenizer.decode(gen_tokens[0].cpu().numpy().tolist()), style="red")
+            next_token = gen_tokens[:, -2].unsqueeze(0)
+            gen_tokens = gen_tokens[:, :-1]
+            # console.print("after (", len(gen_tokens[0]), "):", tokenizer.decode(gen_tokens[0].cpu().numpy().tolist()), style="green")
+            # console.print({"cur_pos": cur_pos, "next_token": tokenizer.decode([next_token.item()])}, style="green")
+            
+
+
+            # print("---", next_token.shape, gen_tokens.shape)
+            console.print("⌫", end='', style="red")
+            
+            continue
+        else:
+            num_recent_deletes = max(0, num_recent_deletes - 0.5)
+
+        temperature = 1.5 + (0.5 * num_recent_deletes)
+        next_token = sample(gen_tokens, logits, scores, temperature=temperature)
 
         token_str = tokenizer.decode(next_token.tolist()[0])
         stat_list.append({'token': token_str, **metrics_clean})
@@ -155,6 +178,11 @@ def main():
     
       df = pd.DataFrame(stat_list)
       df.to_csv('stats.csv', index=False)
+
+    #   print tokens
+      raw_tokens = gen_tokens[0].cpu().numpy().tolist()
+      console.print("\n---", style="bold")
+      console.print(tokenizer.decode(raw_tokens), style="green")
 
     print(prompt)
     generate(xfmr_weights, model_params, raw_tokens1)
