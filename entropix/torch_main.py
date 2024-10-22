@@ -11,17 +11,17 @@ from rich import print
 from rich.console import Console
 
 from entropix.config import LLAMA_1B_PARAMS
-from entropix.prompts import bp1, bp4, prompt, default_prompt
+from entropix.prompts import bp1, bp4, prompt, prompt7, default_prompt
 from entropix.tokenizer import Tokenizer
 from entropix.torch_kvcache import KVCache
 from entropix.torch_model import xfmr
-from entropix.torch_sampler import calculate_metrics, sample
+from entropix.torch_sampler import SamplerConfig, calculate_metrics, sample, vanilla_sample
 from entropix.torch_weights import LayerWeights, XfmrWeights, load_weights
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# prompt = bp4
-prompt = default_prompt
+prompt = prompt7
+# prompt = default_prompt
 
 # Device selection, tree is like first apple silicion, then cuda, fallback is cpu.
 if torch.backends.mps.is_available():
@@ -101,11 +101,12 @@ def main():
     xfmr_weights = load_weights(ckpt_dir=Path("weights/1B-Instruct"), should_compare_outputs=True)
 
     tokenizer = Tokenizer('entropix/tokenizer.model')
-    raw_tokens1 = tokenizer.encode(prompt,  bos=False, eos=False, allowed_special='all')
+    raw_tokens1 = tokenizer.encode(prompt, bos=False, eos=False, allowed_special='all')
     #this is not used in this script, but can be used to generate base_raw_tokens1
     base_raw_tokens1 = tokenizer.encode(bp1, bos=True, eos=False, allowed_special='all')
     # torch.manual_seed(1234)
 
+    sampler_cfg = SamplerConfig()
 
     def generate(xfmr_weights, model_params, tokens):
       gen_tokens = None
@@ -126,47 +127,41 @@ def main():
       should_noise = False
       while cur_pos < 512:
         cur_pos += 1
-        # print("cur_pos", cur_pos)
         logits, kvcache, scores, stats = xfmr(xfmr_weights, model_params, next_token, cur_pos, freqs_cis[cur_pos:cur_pos+1], kvcache)
+
         if should_noise:
            logits = logits + torch.randn_like(logits) * 0.1 
-        metrics = calculate_metrics(logits, scores)
+        metrics = calculate_metrics(logits, scores, cur_pos)
         metrics_clean = {k: v.item() for k, v in metrics.items()}
-
-        # print(metrics_clean)
 
         ent, vent = metrics["logits_entropy"], metrics["logits_varentropy"]
         del metrics
 
-        # basic weighting to prevent backspacing too much
-        threshold = 5.0 + 2 * num_recent_deletes
-        if ent > threshold and vent > threshold and cur_pos > seqlen + 4:
-        #    backspace and pop the last token
-            num_recent_deletes += 1
-            # reset to the position before the last token, regenerate the token
-            cur_pos -= 2
-            next_token = gen_tokens[:, -2].unsqueeze(0)
-            gen_tokens = gen_tokens[:, :-1]
-            console.print("⌫", end='', style="red")
-            should_noise = True
-            continue
-        else:
-            num_recent_deletes = max(0, num_recent_deletes - 0.5)
-            should_noise = False
+        # # basic weighting to prevent backspacing too much
+        # threshold = 5.0 + 2 * num_recent_deletes
+        # if ent > threshold and vent > threshold and cur_pos > seqlen + 4:
+        # #    backspace and pop the last token
+        #     num_recent_deletes += 1
+        #     # reset to the position before the last token, regenerate the token
+        #     cur_pos -= 2
+        #     next_token = gen_tokens[:, -2].unsqueeze(0)
+        #     gen_tokens = gen_tokens[:, :-1]
+        #     console.print("⌫", end='', style="red")
+        #     should_noise = True
+        #     continue
+        # else:
+        #     num_recent_deletes = max(0, num_recent_deletes - 0.5)
+        #     should_noise = False
 
-        temperature = 0.7 + (0.5 * num_recent_deletes)
-        next_token = sample(gen_tokens, logits, scores, temperature=temperature)
+        # temperature = 0.7 + (0.5 * num_recent_deletes)
 
+        # next_token, color = sample(gen_tokens, logits, scores, cfg=sampler_cfg)
+        next_token = vanilla_sample(gen_tokens, logits, scores)
         token_str = tokenizer.decode(next_token.tolist()[0])
         stat_list.append({'token': token_str, **metrics_clean})
         gen_tokens = torch.cat((gen_tokens, next_token), dim=1)
 
-        style = ""
-        if metrics_clean["logits_entropy"] > 3:
-          style = "bold"
-        elif metrics_clean["logits_varentropy"] > 15:
-           style += "blue"
-        console.print(token_str, end='', style=style)
+        console.print(token_str, end='', style="")
         if torch.isin(next_token, stop).any():
           break
     

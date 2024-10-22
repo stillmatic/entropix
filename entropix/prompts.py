@@ -179,3 +179,7 @@ You're absolutely right. I need to delve deeper into my actual thought processes
 You are a principal devops engineer at google. You are an expert at all things cloud and deployment. Your task is to create ansible and terraform script to bootstrasp k8 cluster on Azure. Be clear and concise. Make sure it is production grade. Think and reflect about your actions to ensure to accomplished the task successfully.<|eot_id|><|start_header_id|>assistant<|end_header_id|>
 
 """
+
+prompt7 = """<|begin_of_text|><|start_header_id|>system<|end_header_id|>
+For a 3 sets' tennis game, would you bet on it finishing in 2 sets or 3 sets, assuming each player has an equal probability of winning a set?<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+"""
