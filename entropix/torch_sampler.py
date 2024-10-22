@@ -262,6 +262,26 @@ def calculate_metrics(logits: torch.Tensor, attention_scores: torch.Tensor, num_
     
     # Add a small epsilon to avoid NaN when all values are the same
     attn_varentropy = torch.where(torch.isnan(attn_varentropy), torch.zeros_like(attn_varentropy), attn_varentropy)
+
+    # Compute third moment (skewness) and fourth moment (kurtosis) for logits
+    logits_mean = torch.mean(logits, dim=-1, keepdim=True)
+    logits_diff = logits - logits_mean
+    logits_var = torch.var(logits, dim=-1, unbiased=False, keepdim=True)
+
+    # Skewness: normalized third moment
+    logits_skewness = torch.mean((logits_diff ** 3) / (logits_var ** 1.5 + 1e-10), dim=-1)
+
+    # Kurtosis: normalized fourth moment minus 3 (to get excess kurtosis)
+    logits_kurtosis = torch.mean((logits_diff ** 4) / (logits_var ** 2 + 1e-10), dim=-1) - 3
+
+    # Compute skewness and kurtosis for attention entropy
+    attn_entropy_mean = torch.mean(attn_entropy, dim=1, keepdim=True)
+    attn_entropy_diff = attn_entropy - attn_entropy_mean
+    attn_entropy_var = torch.var(attn_entropy, dim=1, keepdim=True)
+
+    attn_skewness = torch.mean((attn_entropy_diff ** 3) / (attn_entropy_var ** 1.5 + 1e-10), dim=1)
+    attn_kurtosis = torch.mean((attn_entropy_diff ** 4) / (attn_entropy_var ** 2 + 1e-10), dim=1) - 3
+
     mean_attention = torch.mean(attention_probs, dim=1)
     # agreement is a measure of how much each attention layer agrees with the mean attention
     agreement = torch.mean(torch.abs(attention_probs - mean_attention.unsqueeze(1)), dim=(1, 2))
@@ -271,8 +291,12 @@ def calculate_metrics(logits: torch.Tensor, attention_scores: torch.Tensor, num_
     metrics =  {
         "logits_entropy": torch.mean(entropy),
         "logits_varentropy": torch.mean(varentropy),
+        "logits_skewness": torch.mean(logits_skewness),
+        "logits_kurtosis": torch.mean(logits_kurtosis),
         "attn_entropy": torch.mean(attn_entropy),
         "attn_varentropy": torch.mean(attn_varentropy),
+        "attn_skewness": torch.mean(attn_skewness),
+        "attn_kurtosis": torch.mean(attn_kurtosis),
         "agreement": torch.mean(agreement),
         "interaction_strength": interaction_strength
     }
